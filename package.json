@@ -1,0 +1,22 @@
+{
+  "name": "ember-yuidoc-codemod",
+  "version": "0.1.0",
+  "author": "Dustin R. Heart <antidecorum@gmail.com>",
+  "license": "MIT",
+  "repository": "https://github.com/doctorless/ember-yuidoc-codemod",
+  "bin": "./bin/ember-yuidoc-codemod.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "dependencies": {
+    "chalk": "^1.1.3",
+    "execa": "~0.8.0",
+    "glob": "^7.1.1",
+    "jscodeshift": "^0.3.29"
+  },
+  "devDependencies": {
+    "fs-extra": "^4.0.2",
+    "jest": "^20.0.4",
+    "tmp": "^0.0.33"
+  }
+}
