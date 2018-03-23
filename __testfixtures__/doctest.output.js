@@ -27,10 +27,12 @@ export default Ember.Component.extend({
 
   /**
   * @method me
+  * @param {Object} the
+  * @param {Object} world
+  * @param {Object} is
   * @return {Boolean}
   */
-  me() {
-    console.log("the world is");
+  me(the, world, is) {
     return true;
   },
 

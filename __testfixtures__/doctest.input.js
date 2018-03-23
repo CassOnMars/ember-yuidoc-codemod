@@ -11,8 +11,7 @@ export default Ember.Component.extend({
 
   told: Ember.computed.not(once),
 
-  me() {
-    console.log("the world is");
+  me(the, world, is) {
     return true;
   },
 

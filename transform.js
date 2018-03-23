@@ -2,22 +2,16 @@
 
 const fs       = require("fs");
 
-const LOG_FILE = "ember-yuidoc-codemod.tmp." + process.pid;
-const ERROR_WARNING = 1;
-const MISSING_GLOBAL_WARNING = 2;
-
-const OPTS = {
-  quote: 'single'
-};
-
-
 module.exports = transform;
 
 function transform(file, api) {
   const j = api.jscodeshift;
   let path = file.path.split('/');
   let classname = path[path.length - 1].split('.')[0].split('-').map(w => capitalize(w)).join('');
-  let source = j(file.source)
+
+  let source = file.source;
+
+  source = j(source)
     .find(j.ExportDefaultDeclaration)
     .forEach(d => {
       const comments = (d.node.comments = d.node.comments || []);
@@ -38,60 +32,17 @@ function transform(file, api) {
           )
         );
       }
-    })
-    .toSource();
-
-  source = j(source)
-    .find(j.Property)
-    .forEach(p => {
-      if (p.node.value.type == "Literal") {
-        const comment = j.commentBlock(
-          "*\n* @property " + p.node.key.name + "\n* @type {" + capitalize(typeof p.node.value.value) + "}\n",
-          true,
-          false
-        );
-        const comments = (p.node.comments = p.node.comments || []);
-        if (!p.node.comments.find(c => c.value.includes("@property"))) {
-          comments.push(comment);
+      d.node.declaration.arguments.forEach(arg => {
+        if (arg.type && arg.type == 'ObjectExpression') {
+          arg.properties.forEach(p => {
+            if (p.key.name == "actions" && p.value.type == "ObjectExpression") {
+              p.value.properties.forEach(a => handleProperties(a, j, source));
+            } else {
+              handleProperties(p, j, source);
+            }
+          });
         }
-      } else if (p.node.value.type == "CallExpression") {
-        const comment = j.commentBlock(
-          "*\n* @property " +
-            p.node.key.name +
-            determineReadOnly(source.split("\n")[p.node.value.loc.start.line - 1]) +
-            "\n* @type {" +
-            capitalize(determineCallType(source.split("\n")[p.node.value.loc.start.line - 1])) +
-            "}\n",
-          true,
-          false
-        );
-        const comments = (p.node.comments = p.node.comments || []);
-        if (!p.node.comments.find(c => c.value.includes("@property"))) {
-          comments.push(comment);
-        }
-      } else if (p.node.value.type == "FunctionExpression") {
-        const returns = p.node.value.body.body.filter(b => b.type == "ReturnStatement");
-        let types = [];
-        returns.forEach(r => {
-          const type = capitalize(typeof r.argument.value);
-          if (!types.includes(type)) {
-            types.push(type);
-          }
-        });
-        if (returns.length > 0) {
-          const comment = j.commentBlock("*\n* @method " + p.node.key.name + "\n* @return {" + types.join("|") + "}\n", true, false);
-          const comments = (p.node.comments = p.node.comments || []);
-          if (!p.node.comments.find(c => c.value.includes("@method"))) {
-            comments.push(comment);
-          }
-        } else {
-          const comment = j.commentBlock("*\n* @method " + p.node.key.name + "\n", true, false);
-          const comments = (p.node.comments = p.node.comments || []);
-          if (!p.node.comments.find(c => c.value.includes("@method"))) {
-            comments.push(comment);
-          }
-        }
-      }
+      });
     })
     .toSource();
 
@@ -102,7 +53,8 @@ function capitalize(name) {
   return name.slice(0, 1).toUpperCase() + name.slice(1);
 }
 
-function determineCallType(line) {
+function determineCallType(p, j, source) {
+  const line = source.split("\n")[p.value.loc.start.line - 1];
   if (line.includes("Ember.computed.")) {
     switch (line.split("Ember.computed.")[1].split("(")[0]) {
       case "alias":
@@ -141,6 +93,9 @@ function determineCallType(line) {
       case "or":
         return "boolean";
     }
+  } else if (line.includes("Ember.computed")) {
+    console.log(line);
+    return retrieveFunctionReturnTypes(p.value.arguments.find(f => f.type == 'FunctionExpression')).join('|');
   }
 }
 
@@ -181,4 +136,67 @@ function determineReadOnly(line) {
   }
 
   return "";
+}
+
+function handleProperties(p, j, source) {
+  if (p.value.type == "Literal") {
+    const comment = j.commentBlock(
+      "*\n* @property " + p.key.name + "\n* @type {" + capitalize(typeof p.value.value) + "}\n",
+      true,
+      false
+    );
+    const comments = (p.comments = p.comments || []);
+    if (!p.comments.find(c => c.value.includes("@property"))) {
+      comments.push(comment);
+    }
+  } else if (p.value.type == "CallExpression") {
+    const comment = j.commentBlock(
+      "*\n* @property " +
+        p.key.name +
+        determineReadOnly(source.split("\n")[p.value.loc.start.line - 1]) +
+        "\n* @type {" +
+        capitalize(determineCallType(p, j, source)) +
+        "}\n",
+      true,
+      false
+    );
+    const comments = (p.comments = p.comments || []);
+    if (!p.comments.find(c => c.value.includes("@property"))) {
+      comments.push(comment);
+    }
+  } else if (p.value.type == "FunctionExpression") {
+    handleFunctionExpression(p, p.value, j, source);
+  }
+}
+
+function handleFunctionExpression(p, f, j, source) {
+  let types = retrieveFunctionReturnTypes(f);
+  let params = f.params.map(param => "\n* @param {Object} " + param.name).join('');
+
+  if (types.length > 0) {
+    const comment = j.commentBlock("*\n* @method " + p.key.name + params + "\n* @return {" + types.join("|") + "}\n", true, false);
+    const comments = (p.comments = p.comments || []);
+    if (!p.comments.find(c => c.value.includes("@method"))) {
+      comments.push(comment);
+    }
+  } else {
+    const comment = j.commentBlock("*\n* @method " + p.key.name + params + "\n", true, false);
+    const comments = (p.comments = p.comments || []);
+    if (!p.comments.find(c => c.value.includes("@method"))) {
+      comments.push(comment);
+    }
+  }
+}
+
+function retrieveFunctionReturnTypes(f) {
+  const returns = f.body.body.filter(b => b.type == "ReturnStatement");
+  let types = [];
+  returns.forEach(r => {
+    const type = capitalize(typeof r.argument.value);
+    if (!types.includes(type)) {
+      types.push(type);
+    }
+  });
+
+  return types;
 }
