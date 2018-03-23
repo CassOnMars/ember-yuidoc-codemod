@@ -14,35 +14,39 @@ function transform(file, api) {
   source = j(source)
     .find(j.ExportDefaultDeclaration)
     .forEach(d => {
-      const comments = (d.node.comments = d.node.comments || []);
-      if (!d.node.comments.find(c => c.value.includes("@class"))) {
-        comments.push(
-          j.commentBlock(
-            "*\n* @module " +
-              d.node.declaration.callee.object.property.name.toLowerCase() +
-              "s\n* @extends " +
-              d.node.declaration.callee.object.object.name +
-              "." +
-              d.node.declaration.callee.object.property.name +
-              "\n* @class " +
-              classname +
-              "\n",
-            true,
-            false
-          )
-        );
-      }
-      d.node.declaration.arguments.forEach(arg => {
-        if (arg.type && arg.type == 'ObjectExpression') {
-          arg.properties.forEach(p => {
-            if (p.key.name == "actions" && p.value.type == "ObjectExpression") {
-              p.value.properties.forEach(a => handleProperties(a, j, source));
-            } else {
-              handleProperties(p, j, source);
-            }
-          });
+      if (!d.node.declaration.callee) {
+        // TODO: handle POJO exports
+      } else {
+        const comments = (d.node.comments = d.node.comments || []);
+        if (!d.node.comments.find(c => c.value.includes("@class"))) {
+          comments.push(
+            j.commentBlock(
+              "*\n* @module " +
+                d.node.declaration.callee.object.property.name.toLowerCase() +
+                "s\n* @extends " +
+                d.node.declaration.callee.object.object.name +
+                "." +
+                d.node.declaration.callee.object.property.name +
+                "\n* @class " +
+                classname +
+                "\n",
+              true,
+              false
+            )
+          );
         }
-      });
+        d.node.declaration.arguments.forEach(arg => {
+          if (arg.type && arg.type == 'ObjectExpression') {
+            arg.properties.forEach(p => {
+              if (p.key.name == "actions" && p.value.type == "ObjectExpression") {
+                p.value.properties.forEach(a => handleProperties(a, j, source));
+              } else {
+                handleProperties(p, j, source);
+              }
+            });
+          }
+        });
+      }
     })
     .toSource();
 
@@ -94,8 +98,19 @@ function determineCallType(p, j, source) {
         return "boolean";
     }
   } else if (line.includes("Ember.computed")) {
-    console.log(line);
-    return retrieveFunctionReturnTypes(p.value.arguments.find(f => f.type == 'FunctionExpression')).join('|');
+    return retrieveFunctionReturnTypes((p.value.arguments == 0 ? p.value.callee.object.arguments : p.value.arguments).find(f => f.type == 'FunctionExpression')).join('|');
+  } else if (line.includes("DS.belongsTo")) {
+    return "object";
+  } else if (line.includes("DS.attr")) {
+    return p.value.arguments.length > 0 ? p.value.arguments[0].value : "object";
+  } else if (line.includes("Ember.inject.service")) {
+    return p.value.arguments.length > 0 ? p.value.arguments[0].value : p.key.name;
+  } else if (line.includes("DS.hasMany")) {
+    return "object[]";
+  } else if (line.includes("Ember.inject.controller")) {
+    return "Ember.Controller";
+  } else {
+    return "*unknown*";
   }
 }
 
